@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "geometryOffset": 884730,
+  "unk1": 255,
+  "arrayCount": 3072,
+  "indicesOffset": 897026,
+  "indicesCount": 57380,
+  "verticesOffset": 1011790,
+  "verticesCount": 736,
+  "sampleIndices": [
+    22528,
+    26712,
+    4448,
+    46628,
+    7021,
+    43288,
+    57380,
+    0,
+    21760,
+    21845
+  ]
+}

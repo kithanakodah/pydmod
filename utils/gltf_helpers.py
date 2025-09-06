@@ -3,10 +3,11 @@ import math
 import numpy
 import os
 import re
+from pathlib import Path
 
 from re import RegexFlag
 
-from cnk_loader import CNK0
+from cnk_loader import Chunk
 from dme_loader import DME, Mesh as DMEMesh, HIERARCHY, RIGIFY_MAPPINGS
 from DbgPack import AssetManager
 from io import BytesIO
@@ -28,7 +29,10 @@ SUFFIX_TO_TYPE = {
 
 texture_name_to_indices = {}
 
-def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[int, List[int]], textures: Dict[str, PILImage.Image], image_indices: Dict[str, int], offset: int, blob: bytes, dme_name: str, include_skeleton: bool = True) -> Tuple[int, bytes]:
+
+def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[int, List[int]],
+                       textures: Dict[str, PILImage.Image], image_indices: Dict[str, int], offset: int, blob: bytes,
+                       dme_name: str, include_skeleton: bool = True) -> Tuple[int, bytes]:
     global texture_name_to_indices
     sampler = 0
     if len(gltf.samplers) == 0 or gltf.samplers[sampler].wrapS != REPEAT:
@@ -37,8 +41,9 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
     texture_groups_dict = {}
     atlas_set = set()
     for texture in dme.dmat.textures:
-        group_match = re.match("(.*)_(C|c|N|n|S|s)\.dds", texture)
-        atlas_match = re.match(".*(atlas|CommandControlTerminal).*\.dds", texture, flags=RegexFlag.IGNORECASE)
+        # To this (escape the backslashes):
+        group_match = re.match(r"(.*)_(C|c|N|n|S|s)\.dds", texture)
+        atlas_match = re.match(r".*(atlas|CommandControlTerminal).*\.dds", texture, flags=RegexFlag.IGNORECASE)
         if not group_match and atlas_match and texture not in atlas_set:
             atlas_set.add(texture)
         if not group_match:
@@ -46,12 +51,13 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
         if group_match.group(1) not in texture_groups_dict:
             texture_groups_dict[group_match.group(1)] = 0
         texture_groups_dict[group_match.group(1)] += 1
-    
-    texture_groups = [name for name, _ in sorted(list(texture_groups_dict.items()), key=lambda pair: pair[1], reverse=True)]
+
+    texture_groups = [name for name, _ in
+                      sorted(list(texture_groups_dict.items()), key=lambda pair: pair[1], reverse=True)]
 
     logger.info(f"Texture groups: {texture_groups}")
     logger.info(f"Atlas textures: {list(atlas_set)}")
-    
+
     mat_info = []
     for name in texture_groups:
         for suffix in ["_C.dds", "_N.dds", "_S.dds"]:
@@ -75,9 +81,9 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
                 mat_info_entry[SUFFIX_TO_TYPE[suffix]] = TextureInfo(index=image_indices[name + suffix])
 
             texture_name_to_indices[name + suffix] = image_indices[name + suffix]
-            
+
         mat_info.append(mat_info_entry)
-    
+
     atlas_texture = None
     for atlas in atlas_set:
         if str(Path(atlas).with_suffix(".png")) in texture_name_to_indices:
@@ -85,7 +91,7 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
             continue
         atlas_texture = len(gltf.textures)
         load_texture(manager, gltf, textures, atlas, image_indices, sampler)
-    
+
     mesh_materials = []
     assert len(dme.meshes) == len(dme.dmat.materials), "Mesh count != material count"
 
@@ -96,22 +102,24 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
         if i < len(mat_info):
             mat_textures: Dict[str, Optional[TextureInfo]] = mat_info[i]
         elif material.name() == 'BumpRigidHologram2SidedBlend':
-            mat_textures: Dict[str, Optional[TextureInfo]] = {"base": None, "met": None, "norm": None, "emis": TextureInfo(index=atlas_texture)}
+            mat_textures: Dict[str, Optional[TextureInfo]] = {"base": None, "met": None, "norm": None,
+                                                              "emis": TextureInfo(index=atlas_texture)}
         else:
             mat_textures: Dict[str, Optional[TextureInfo]] = {"base": None, "met": None, "norm": None, "emis": None}
-        
-        
+
         # look for existing material that uses same textures
         for mat_index in mats[material.namehash]:
             logger.debug(f"gltf.materials[{mat_index}] == {gltf.materials[mat_index]}")
             logger.debug(f"mat_textures == {mat_textures}")
             baseColorTexture = gltf.materials[mat_index].pbrMetallicRoughness.baseColorTexture
             emissiveTexture = gltf.materials[mat_index].emissiveTexture
-            if baseColorTexture is not None and mat_textures["base"] is not None and baseColorTexture.index == mat_textures["base"].index:
+            if baseColorTexture is not None and mat_textures["base"] is not None and baseColorTexture.index == \
+                    mat_textures["base"].index:
                 logger.info("Found existing material with same base texture")
                 mesh_materials.append(mat_index)
                 break
-            elif emissiveTexture is not None and mat_textures["emis"] is not None and emissiveTexture.index == mat_textures["emis"].index:
+            elif emissiveTexture is not None and mat_textures["emis"] is not None and emissiveTexture.index == \
+                    mat_textures["emis"].index:
                 logger.info("Found existing material with same emissive texture")
                 mesh_materials.append(mat_index)
                 break
@@ -119,11 +127,11 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
                 logger.info("Found existing material with same (null) base texture")
                 mesh_materials.append(mat_index)
                 break
-        
+
         # material was found and assigned to this mesh, continue
         if len(mesh_materials) > i:
             continue
-        
+
         # material was not found - create new
         logger.info(f"Creating new material instance #{len(mats[material.namehash]) + 1}")
         mats[material.namehash].append(len(gltf.materials))
@@ -131,7 +139,7 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
 
         new_mat = Material(
             name=material.name(),
-            pbrMetallicRoughness = PbrMetallicRoughness(
+            pbrMetallicRoughness=PbrMetallicRoughness(
                 baseColorTexture=mat_textures["base"],
                 metallicRoughnessTexture=mat_textures["met"],
                 baseColorFactor=[1, 1, 1, 1] if mat_textures["base"] is not None else [0, 0, 0, 1]
@@ -144,13 +152,13 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
         )
         gltf.materials.append(new_mat)
 
-    
     for i, mesh in enumerate(dme.meshes):
         logger.info(f"Writing mesh {i + 1} of {len(dme.meshes)}")
         material_index = mesh_materials[i]
         swapped = False
         if len(dme.bone_map2) > 0 and i == 1:
-            logger.warning("Swapping around bone maps since there were bones with the same index in the dme bone map entries.")
+            logger.warning(
+                "Swapping around bone maps since there were bones with the same index in the dme bone map entries.")
             logger.warning("Theoretically this should only happen for high bone count models (Colossus is one)")
             swapped = True
             temp = dme.bone_map
@@ -161,28 +169,56 @@ def append_dme_to_gltf(gltf: GLTF2, dme: DME, manager: AssetManager, mats: Dict[
             dme.bone_map2 = dme.bone_map
             dme.bone_map = temp
 
-    
     if len(dme.bones) > 0 and include_skeleton:
         offset, blob = add_skeleton_to_gltf(gltf, dme, offset, blob)
-    
+
     return offset, blob
 
-def unpack_specular(manager: AssetManager, gltf: GLTF2, textures: Dict[str, PILImage.Image], im: PILImage.Image, name: str, texture_indices: Dict[str, int], sampler: int = 0):
+
+def unpack_specular(manager: AssetManager, gltf: GLTF2, textures: Dict[str, PILImage.Image], im: PILImage.Image,
+                    name: str, texture_indices: Dict[str, int], sampler: int = 0):
     metallic = im.getchannel("R")
     roughness = im.getchannel("A")
     metallicRoughness = PILImage.merge("RGB", [metallic, roughness, metallic])
     albedoName = name[:-5] + "C.dds" if name[-5] == "S" else "c.dds"
-    albedoAsset = manager.get_raw(albedoName)
-    if albedoAsset is not None:
-        albedo = PILImage.open(BytesIO(albedoAsset.get_data()))
+
+    # Try extracted assets first for albedo texture
+    extracted_albedo = Path("M:/H1Z1_assets") / albedoName
+    if extracted_albedo.exists():
+        with open(extracted_albedo, 'rb') as f:
+            albedo_data = f.read()
+        albedo = PILImage.open(BytesIO(albedo_data))
         albedoRGB = albedo.convert(mode="RGB")
         constant = PILImage.new(mode="RGB", size=albedo.size)
-        mask = ImageChops.multiply(PILImage.eval(im.getchannel("B").resize(constant.size), lambda x: 255 if x > 50 else 0), albedo.getchannel("A"))
+        mask = ImageChops.multiply(
+            PILImage.eval(im.getchannel("B").resize(constant.size), lambda x: 255 if x > 50 else 0),
+            albedo.getchannel("A"))
         emissive = PILImage.composite(albedoRGB, constant, mask)
         albedo.close()
         constant.close()
     else:
-        emissive = im.getchannel("B").convert(mode="RGB")
+        # Fallback to asset manager
+        try:
+            albedoAsset = manager.get_raw(albedoName)
+            if albedoAsset is not None:
+                albedo = PILImage.open(BytesIO(albedoAsset.get_data()))
+            albedoRGB = albedo.convert(mode="RGB")
+            constant = PILImage.new(mode="RGB", size=albedo.size)
+            mask = ImageChops.multiply(
+                PILImage.eval(im.getchannel("B").resize(constant.size), lambda x: 255 if x > 50 else 0),
+                albedo.getchannel("A"))
+            emissive = PILImage.composite(albedoRGB, constant, mask)
+            albedo.close()
+            constant.close()
+
+
+        # REPLACE WITH:
+        except (AssertionError, Exception) as e:
+            logger.warning(f"Failed to load albedo {albedoName} from asset manager: {e}, using fallback")
+            emissive = im.getchannel("B").convert(mode="RGB")
+        else:
+            emissive = im.getchannel("B").convert(mode="RGB")
+
     ename = name[:-5] + "E.png"
     textures[ename] = emissive
     texture_indices[ename] = len(gltf.textures)
@@ -194,10 +230,12 @@ def unpack_specular(manager: AssetManager, gltf: GLTF2, textures: Dict[str, PILI
     gltf.textures.append(Texture(source=len(gltf.images), sampler=sampler, name=mrname))
     gltf.images.append(Image(uri="textures" + os.sep + mrname))
 
-def unpack_normal(gltf: GLTF2, textures: Dict[str, PILImage.Image], im: PILImage.Image, name: str, texture_indices: Dict[str, int], sampler: int = 0):
+
+def unpack_normal(gltf: GLTF2, textures: Dict[str, PILImage.Image], im: PILImage.Image, name: str,
+                  texture_indices: Dict[str, int], sampler: int = 0):
     is_packed = True
     if is_packed:
-        #Blue channel is not all >= 0.5, so its not a regular normal map
+        # Blue channel is not all >= 0.5, so its not a regular normal map
         x = im.getchannel("A")
         y = im.getchannel("G")
         z = ImageChops.constant(im.getchannel("A"), 255)
@@ -212,7 +250,6 @@ def unpack_normal(gltf: GLTF2, textures: Dict[str, PILImage.Image], im: PILImage
     gltf.textures.append(Texture(source=len(gltf.images), sampler=sampler, name=normal_name))
     gltf.images.append(Image(uri="textures" + os.sep + normal_name))
 
-
     if is_packed:
         secondary_tint = PILImage.eval(im.getchannel("R"), lambda x: 255 if x < 50 else 0)
         primary_tint = PILImage.eval(im.getchannel("B"), lambda x: 255 if x < 50 else 0)
@@ -224,7 +261,9 @@ def unpack_normal(gltf: GLTF2, textures: Dict[str, PILImage.Image], im: PILImage
         gltf.textures.append(Texture(source=len(gltf.images), sampler=sampler, name=tints_name))
         gltf.images.append(Image(uri="textures" + os.sep + tints_name))
 
-def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, offset: int, blob: bytes) -> Tuple[int, bytes]:
+
+def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, offset: int, blob: bytes) -> Tuple[
+    int, bytes]:
     if mesh is None:
         return (offset, blob)
     if len(mesh.vertices[0]) == 0 or len(mesh.indices) == 0:
@@ -233,11 +272,14 @@ def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, 
     vertices_bin = numpy.array(mesh.vertices[0], dtype=numpy.single).flatten().tobytes()
     indices_bin = numpy.array(mesh.indices, dtype=numpy.ushort if mesh.index_size == 2 else numpy.uintc).tobytes()
     if 0 in mesh.normals:
-        normals_bin = numpy.array([[-n for n in normal] for normal in mesh.normals[0]], dtype=numpy.single).flatten().tobytes()
+        normals_bin = numpy.array([[-n for n in normal] for normal in mesh.normals[0]],
+                                  dtype=numpy.single).flatten().tobytes()
     else:
         normals_bin = b''
     if 0 in mesh.tangents:
-        tangents_bin = numpy.array([[*tangent[:3], (-tangent[3]) if len(tangent) > 3 else (-1)] for tangent in mesh.tangents[0]], dtype=numpy.single).flatten().tobytes()
+        tangents_bin = numpy.array(
+            [[*tangent[:3], (-tangent[3]) if len(tangent) > 3 else (-1)] for tangent in mesh.tangents[0]],
+            dtype=numpy.single).flatten().tobytes()
     else:
         tangents_bin = b''
     attributes = []
@@ -293,8 +335,7 @@ def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, 
         ))
         offset += len(normals_bin)
         blob += normals_bin
-    
-    
+
     if 0 in mesh.tangents:
         attributes.append([TANGENT, len(gltf.accessors)])
         gltf.accessors.append(Accessor(
@@ -312,8 +353,7 @@ def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, 
         ))
         offset += len(tangents_bin)
         blob += tangents_bin
-    
-    
+
     for j, uvs in mesh.uvs.items():
         bin = numpy.array(uvs, dtype=numpy.single).flatten().tobytes()
         attributes.append([f"TEXCOORD_{j}", len(gltf.accessors)])
@@ -332,7 +372,7 @@ def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, 
         ))
         offset += len(bin)
         blob += bin
-    
+
     if len(mesh.skin_indices) > 0:
         attributes.append([JOINTS_0, len(gltf.accessors)])
         if 63 not in dme.bone_map:
@@ -371,7 +411,7 @@ def add_mesh_to_gltf(gltf: GLTF2, dme: DME, mesh: DMEMesh, material_index: int, 
         ))
         offset += len(skin_weights_bin)
         blob += skin_weights_bin
-    
+
     # if len(mesh.colors) > 0:
     #     for index in mesh.colors:
     #         attributes.append([f"COLOR_{index}", len(gltf.accessors)])
@@ -413,25 +453,26 @@ def add_skeleton_to_gltf(gltf: GLTF2, dme: DME, offset: int, blob: bytes) -> Tup
     bone_nodes: Dict[str, int] = {}
     for bone in dme.bones:
         matrices_bin += bone.inverse_bind_pose.tobytes()
-        translation = bone.inverse_bind_pose.I[3,0:3].tolist()[0]
+        translation = bone.inverse_bind_pose.I[3, 0:3].tolist()[0]
         translation = [translation[0], translation[1], translation[2]]
         scale = []
         rotation = bone.inverse_bind_pose.I.copy()
-        rotation[3,0:3] = [0., 0., 0.]
+        rotation[3, 0:3] = [0., 0., 0.]
         for i in range(3):
-            value = float(numpy.linalg.norm(bone.inverse_bind_pose.I[i,0:3]))
+            value = float(numpy.linalg.norm(bone.inverse_bind_pose.I[i, 0:3]))
             if math.fabs(1.0 - value) < 0.001:
                 value = 1.0
             scale.append(value)
-            rotation[i,0:3] /= value
-        r = Rotation.from_matrix(rotation[0:3,0:3])
+            rotation[i, 0:3] /= value
+        r = Rotation.from_matrix(rotation[0:3, 0:3])
         bone_nodes[bone.name] = len(gltf.nodes)
         joints.append(len(gltf.nodes))
         gltf.nodes.append(Node(
             translation=translation,
             rotation=r.as_quat().tolist(),
             scale=scale,
-            name="{}".format(RIGIFY_MAPPINGS[bone.name] if bone.name in RIGIFY_MAPPINGS else bone.name if bone.name != '' else bone.namehash)
+            name="{}".format(RIGIFY_MAPPINGS[
+                                 bone.name] if bone.name in RIGIFY_MAPPINGS else bone.name if bone.name != '' else bone.namehash)
         ))
     for name in bone_nodes:
         if name in HIERARCHY and HIERARCHY[name] in bone_nodes:
@@ -443,6 +484,7 @@ def add_skeleton_to_gltf(gltf: GLTF2, dme: DME, offset: int, blob: bytes) -> Tup
                     gltf.nodes[bone_nodes[next_bone]].children.append(bone_nodes[name])
                     break
                 next_bone = HIERARCHY[next_bone]
+
     def update_transform(gltf: GLTF2, root: Node, parent: Optional[Node]):
         if len(root.children) == 0:
             return
@@ -453,6 +495,7 @@ def add_skeleton_to_gltf(gltf: GLTF2, dme: DME, offset: int, blob: bytes) -> Tup
             translation = parent.translation
         logger.debug(f"Updating {root.name} position: {root.translation} - {translation}")
         root.translation = [root.translation[i] - translation[i] for i in range(3)]
+
     if "WORLDROOT" in bone_nodes:
         node_index = bone_nodes["WORLDROOT"]
     else:
@@ -480,32 +523,53 @@ def add_skeleton_to_gltf(gltf: GLTF2, dme: DME, offset: int, blob: bytes) -> Tup
 
     return offset, blob
 
-def add_chunk_to_gltf(gltf: GLTF2, chunk: CNK0, material_index: int, offset: int, blob: bytes) -> Tuple[int, bytes]:
-    chunk.calculate_verts()
+
+def add_chunk_to_gltf_simple(gltf: GLTF2, chunk: Chunk, material_index: int, offset: int, blob: bytes) -> Tuple[
+    int, bytes]:
+    """
+    Simple version that creates a single mesh primitive from all triangles in the chunk.
+    Combines all render batches into one continuous mesh to avoid overlapping sheets.
+    """
+    # Ensure vertices are calculated
+    if not chunk.verts:
+        chunk.calculate_verts()
 
     if len(chunk.verts) == 0 or len(chunk.triangles) == 0:
         logger.info("Skipping empty chunk")
         return (offset, blob)
 
-    triangles = []
-    for batch in chunk.triangles:
-        for i in batch:
-            triangles.append(i)
-
-
+    # Create vertices binary data
     vertices_bin = numpy.array(chunk.verts, dtype=numpy.single).flatten().tobytes()
-    indices = numpy.array(triangles, dtype=numpy.uintc).flatten()
+
+    # Combine ALL triangles from the chunk into one flat list
+    # chunk.triangles should already be a flat list from calculate_verts
+    all_triangles = chunk.triangles
+    indices = numpy.array(all_triangles, dtype=numpy.uintc)
     indices_bin = indices.tobytes()
-    
-    attributes = []
-    attributes.append([POSITION, len(gltf.accessors)])
+
+    # Handle AABB bounds properly
+    if chunk.aabb and hasattr(chunk.aabb, 'limits'):
+        max_bounds = [chunk.aabb.limits[0][1], chunk.aabb.limits[1][1], chunk.aabb.limits[2][1]]
+        min_bounds = [chunk.aabb.limits[0][0], chunk.aabb.limits[1][0], chunk.aabb.limits[2][0]]
+    elif chunk.aabb and hasattr(chunk.aabb, '_bounds'):
+        max_bounds = [chunk.aabb._bounds[0][1], chunk.aabb._bounds[1][1], chunk.aabb._bounds[2][1]]
+        min_bounds = [chunk.aabb._bounds[0][0], chunk.aabb._bounds[1][0], chunk.aabb._bounds[2][0]]
+    elif chunk.verts:
+        max_bounds = [max(v[0] for v in chunk.verts), max(v[1] for v in chunk.verts), max(v[2] for v in chunk.verts)]
+        min_bounds = [min(v[0] for v in chunk.verts), min(v[1] for v in chunk.verts), min(v[2] for v in chunk.verts)]
+    else:
+        max_bounds = [0, 0, 0]
+        min_bounds = [0, 0, 0]
+
+    # Create vertex accessor
+    vertex_accessor_idx = len(gltf.accessors)
     gltf.accessors.append(Accessor(
         bufferView=len(gltf.bufferViews),
         componentType=FLOAT,
         count=len(chunk.verts),
         type=VEC3,
-        max=chunk.aabb[1],
-        min=chunk.aabb[0]
+        max=max_bounds,
+        min=min_bounds
     ))
     gltf.bufferViews.append(BufferView(
         buffer=0,
@@ -516,14 +580,16 @@ def add_chunk_to_gltf(gltf: GLTF2, chunk: CNK0, material_index: int, offset: int
     ))
     offset += len(vertices_bin)
     blob += vertices_bin
-    gltf_mesh_indices = len(gltf.accessors)
+
+    # Create index accessor
+    indices_accessor_idx = len(gltf.accessors)
     gltf.accessors.append(Accessor(
         bufferView=len(gltf.bufferViews),
         componentType=UNSIGNED_INT,
         count=len(indices),
         type=SCALAR,
         min=[0],
-        max=[len(chunk.verts) - 1]
+        max=[len(chunk.verts) - 1] if chunk.verts else [0]
     ))
     gltf.bufferViews.append(BufferView(
         buffer=0,
@@ -533,44 +599,45 @@ def add_chunk_to_gltf(gltf: GLTF2, chunk: CNK0, material_index: int, offset: int
     ))
     offset += len(indices_bin)
     blob += indices_bin
-    
-    uv_bin = numpy.array(chunk.uvs, dtype=numpy.single).flatten().tobytes()
-    attributes.append([f"TEXCOORD_0", len(gltf.accessors)])
-    gltf.accessors.append(Accessor(
-        bufferView=len(gltf.bufferViews),
-        componentType=FLOAT,
-        count=len(chunk.uvs),
-        type=VEC2
-    ))
-    gltf.bufferViews.append(BufferView(
-        buffer=0,
-        byteOffset=offset,
-        byteStride=8,
-        byteLength=len(uv_bin),
-        target=ARRAY_BUFFER
-    ))
-    offset += len(uv_bin)
-    blob += uv_bin
-    
-    gltf.nodes.append(Node(
-        mesh=len(gltf.meshes)
-    ))
 
+    # Create ONE mesh with ONE primitive (not 4 separate ones!)
     gltf.meshes.append(Mesh(
         primitives=[Primitive(
-            attributes=Attributes(**{name: value for name, value in attributes}),
-            indices=gltf_mesh_indices,
+            attributes=Attributes(POSITION=vertex_accessor_idx),
+            indices=indices_accessor_idx,
             material=material_index
         )]
     ))
 
+    # Create ONE node for this mesh
+    gltf.nodes.append(Node(
+        mesh=len(gltf.meshes) - 1,
+        name=f"Chunk_{chunk.magic.decode()}"
+    ))
+
     return offset, blob
 
-def load_texture(manager: AssetManager, gltf: GLTF2, textures: Dict[str, PILImage.Image], name: str, texture_indices: Dict[str, int], sampler: int=0):
-    texture = manager.get_raw(name)
-    if texture is None:
-        logger.warning(f"Could not find {name} in loaded game assets, skipping...")
-        return
+
+def load_texture(manager: AssetManager, gltf: GLTF2, textures: Dict[str, PILImage.Image], name: str,
+                 texture_indices: Dict[str, int], sampler: int = 0):
+    # Try extracted assets first
+    extracted_texture = Path("M:/H1Z1_assets") / name
+    if extracted_texture.exists():
+        with open(extracted_texture, 'rb') as f:
+            texture_data = f.read()
+        texture = type('MockAsset', (), {'get_data': lambda self: texture_data})()
+    # In gltf_helpers.py, around line 593, change:
+    # TO:
+    else:
+        try:
+            texture = manager.get_raw(name)
+            if texture is None:
+                logger.warning(f"Could not find {name} in loaded game assets, skipping...")
+                return
+        except (AssertionError, Exception) as e:
+            logger.warning(f"Failed to load {name} from asset manager: {e}, skipping...")
+            return
+
     logger.info(f"Loaded {name}")
 
     im = PILImage.open(BytesIO(texture.get_data()))
@@ -581,7 +648,7 @@ def load_texture(manager: AssetManager, gltf: GLTF2, textures: Dict[str, PILImag
         unpack_normal(gltf, textures, im, name, texture_indices, sampler)
         return
     elif re.match(".*_(c|C).dds", name):
-        #gltf.textures[min(CNS_seen) * 4].name = name
+        # gltf.textures[min(CNS_seen) * 4].name = name
         texture_indices[str(Path(name).with_suffix(".png"))] = len(gltf.images)
         name = str(Path(name).with_suffix(".png"))
         textures[name] = im

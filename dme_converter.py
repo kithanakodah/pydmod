@@ -23,10 +23,11 @@ handler.setFormatter(logging.Formatter(
     datefmt="%Y-%m-%d %H:%M:%S"
 ))
 
+
 def to_stl(dme: DME, output: str):
     faces = []
     for i in range(0, len(dme.meshes[0].indices), 3):
-        faces.append((dme.meshes[0].indices[i+2], dme.meshes[0].indices[i+1], dme.meshes[0].indices[i]))
+        faces.append((dme.meshes[0].indices[i + 2], dme.meshes[0].indices[i + 1], dme.meshes[0].indices[i]))
     faces = numpy.array(faces)
     vertex_array = numpy.array(dme.meshes[0].vertices)
     stl_mesh = mesh.Mesh(numpy.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
@@ -36,6 +37,7 @@ def to_stl(dme: DME, output: str):
 
     stl_mesh.save(output)
 
+
 def to_obj(dme: DME, output: FileIO):
     for mesh in dme.meshes:
         for vertex in mesh.vertices:
@@ -43,15 +45,17 @@ def to_obj(dme: DME, output: FileIO):
 
         for normal in mesh.normals:
             output.write(f"vn {normal[0]} {normal[1]} {normal[2]}\n")
-        
+
         for uv in mesh.uvs:
             output.write(f"vt {uv[0]} {uv[1]}\n")
-        
+
         for i in range(0, len(mesh.indices), 3):
-            i0, i1, i2 = mesh.indices[i] + 1, mesh.indices[i+1] + 1, mesh.indices[i+2] + 1
+            i0, i1, i2 = mesh.indices[i] + 1, mesh.indices[i + 1] + 1, mesh.indices[i + 2] + 1
             output.write(f"f {i1}/{i1} {i0}/{i0} {i2}/{i2}\n")
 
-def dme_to_gltf(dme: DME, manager: AssetManager, dme_name: str, output_name: str, include_skeleton: bool = True) -> Tuple[GLTF2, bytes, Dict[str, PILImage.Image]]:
+
+def dme_to_gltf(dme: DME, manager: AssetManager, dme_name: str, output_name: str, include_skeleton: bool = True) -> \
+        Tuple[GLTF2, bytes, Dict[str, PILImage.Image]]:
     gltf = GLTF2()
     blob = b''
     offset = 0
@@ -60,7 +64,8 @@ def dme_to_gltf(dme: DME, manager: AssetManager, dme_name: str, output_name: str
     image_indices: Dict[str, int] = {}
     if not manager.loaded.is_set():
         manager.loaded.wait()
-    offset, blob = append_dme_to_gltf(gltf, dme, manager, mats, textures, image_indices, offset, blob, dme_name, include_skeleton)
+    offset, blob = append_dme_to_gltf(gltf, dme, manager, mats, textures, image_indices, offset, blob, dme_name,
+                                      include_skeleton)
 
     gltf.buffers.append(Buffer(
         byteLength=len(blob)
@@ -81,6 +86,44 @@ def dme_to_gltf(dme: DME, manager: AssetManager, dme_name: str, output_name: str
 
     return gltf, blob, textures
 
+
+def dme_to_gltf_extracted(dme: DME, asset_dir: Path, dme_name: str, output_name: str, include_skeleton: bool = True) -> \
+        Tuple[GLTF2, bytes, Dict[str, PILImage.Image]]:
+    """Convert DME to GLTF using extracted assets instead of AssetManager"""
+    gltf = GLTF2()
+    blob = b''
+    offset = 0
+    mats = {}
+    textures = {}
+    image_indices: Dict[str, int] = {}
+
+    # Import the extracted version of append_dme_to_gltf from zone_converter_kit
+    from zone_converter_kit import append_dme_to_gltf_extracted
+
+    offset, blob = append_dme_to_gltf_extracted(gltf, dme, asset_dir, mats, textures, image_indices, offset, blob,
+                                                dme_name,
+                                                include_skeleton)
+
+    gltf.buffers.append(Buffer(
+        byteLength=len(blob)
+    ))
+    gltf.scene = 0
+    if len(gltf.nodes) > 1:
+        parented_nodes = []
+        for i in range(len(gltf.nodes)):
+            parented_nodes.extend(gltf.nodes[i].children)
+        gltf.scenes.append(Scene(nodes=[len(gltf.nodes)]))
+        gltf.nodes.append(Node(
+            name=output_name,
+            children=[i for i in range(len(gltf.nodes)) if i not in parented_nodes]
+        ))
+    elif len(gltf.nodes) == 1:
+        gltf.scenes.append(Scene(nodes=[0]))
+        gltf.nodes[0].name = output_name
+
+    return gltf, blob, textures
+
+
 def save_textures(output: str, textures: Dict[str, PILImage.Image]):
     save_directory = Path(output).parent / "textures"
     save_directory.mkdir(exist_ok=True, parents=True)
@@ -91,6 +134,7 @@ def save_textures(output: str, textures: Dict[str, PILImage.Image]):
         textures[texture_name].close()
         textures[texture_name] = None
 
+
 def to_glb(dme: DME, output: str, manager: AssetManager, dme_name: str, include_skeleton: bool = True):
     gltk, blob, textures = dme_to_gltf(dme, manager, dme_name, str(Path(output).stem), include_skeleton)
     gltk.set_binary_blob(blob)
@@ -98,7 +142,7 @@ def to_glb(dme: DME, output: str, manager: AssetManager, dme_name: str, include_
     save_textures(output, textures)
 
 
-def to_gltf(dme: DME, output: str,  manager: AssetManager, dme_name: str, include_skeleton: bool = True):
+def to_gltf(dme: DME, output: str, manager: AssetManager, dme_name: str, include_skeleton: bool = True):
     gltk, blob, textures = dme_to_gltf(dme, manager, dme_name, str(Path(output).stem), include_skeleton)
     blobpath = Path(output).with_suffix(".bin")
     with open(blobpath, "wb") as blob_out:
@@ -106,6 +150,7 @@ def to_gltf(dme: DME, output: str,  manager: AssetManager, dme_name: str, includ
     gltk.buffers[0].uri = blobpath.name
     gltk.save_json(output)
     save_textures(output, textures)
+
 
 manager: AssetManager = None
 pool: multiprocessing.pool.Pool = None
@@ -119,70 +164,103 @@ def get_manager(pool: multiprocessing.pool.Pool, live: bool = False) -> AssetMan
     live_server = Path(r"C:/Users/Public/Daybreak Game Company/Installed Games/PlanetSide 2/Resources/Assets")
     server = test_server if not live else live_server
     if not server.exists():
-        logger.error(f"Installation not found at expected location! Please update path in {__file__} to extract textures automatically!")
+        logger.error(
+            f"Installation not found at expected location! Please update path in {__file__} to extract textures automatically!")
         raise FileNotFoundError(str(server))
     else:
         logger.info("Loading game assets asynchronously...")
-        manager = AssetManager([Path(p) for p in glob(str(server) + "/assets_x64_*.pack2")], p = pool)
+        manager = AssetManager([Path(p) for p in glob(str(server) + "/assets_x64_*.pack2")], p=pool)
         logger.info(f"Manager created, assets loaded: {manager.loaded.is_set()}")
     return manager
+
 
 def main():
     global pool
     parser = ArgumentParser(description="DME v4 to GLTF/OBJ/STL converter")
     parser.add_argument("input_file", type=str, help="Name of the input DME model")
-    parser.add_argument("--output-file", "-o", type=str, help="Where to store the converted file. If not provided, will use the input filename and change the extension")
-    parser.add_argument("--format", "-f", choices=["stl", "gltf", "obj", "glb"], help="The output format to use, required for conversion")
-    parser.add_argument("--material-hashes", "-m", type=int, nargs="+", help="The name hash(es) of the materials to use for each mesh when loading the DME data")
-    parser.add_argument("--dump-textures", "-t", action="store_true", help="Dump the filenames of the textures used by the model to stdout and exit")
-    parser.add_argument("--verbose", "-v", help="Increase log level, can be specified multiple times", action="count", default=0)
-    parser.add_argument("--no-skeleton", "-n", action="store_true", help="Exclude skeleton from generated mesh", default=False)
+    parser.add_argument("--output-file", "-o", type=str,
+                        help="Where to store the converted file. If not provided, will use the input filename and change the extension")
+    parser.add_argument("--format", "-f", choices=["stl", "gltf", "obj", "glb"],
+                        help="The output format to use, required for conversion")
+    parser.add_argument("--asset-dir", type=str,
+                        help="Path to the extracted H1Z1 assets directory (if not using pack files)")
+    parser.add_argument("--material-hashes", "-m", type=int, nargs="+",
+                        help="The name hash(es) of the materials to use for each mesh when loading the DME data")
+    parser.add_argument("--dump-textures", "-t", action="store_true",
+                        help="Dump the filenames of the textures used by the model to stdout and exit")
+    parser.add_argument("--verbose", "-v", help="Increase log level, can be specified multiple times", action="count",
+                        default=0)
+    parser.add_argument("--no-skeleton", "-n", action="store_true", help="Exclude skeleton from generated mesh",
+                        default=False)
     args = parser.parse_args()
 
     logging.basicConfig(level=max(logging.WARNING - 10 * args.verbose, logging.DEBUG), handlers=[handler])
-    pool = multiprocessing.Pool(8)
+
+    asset_dir = Path(args.asset_dir) if args.asset_dir else None
+
+    # Load DME file
+    with open(args.input_file, "rb") as in_file:
+        dme = DME.load(
+            in_file,
+            material_hashes=args.material_hashes,
+            textures_only=args.dump_textures
+        )
+
+    if args.dump_textures:
+        for texture in dme.dmat.textures:
+            print(texture)
+        return 0
+
+    if not args.format:
+        logger.error("File format is required for conversion!")
+        return 1
+    if not args.output_file:
+        output_path = Path(args.input_file).with_suffix("." + args.format)
+    else:
+        output_path = Path(args.output_file)
+    tmp_output_path = output_path.with_suffix(".tmp")
+
     try:
-        if not args.dump_textures:
-            manager = get_manager(pool)
-        with open(args.input_file, "rb") as in_file:
-            dme = DME.load(
-                in_file,
-                material_hashes = args.material_hashes,
-                textures_only   = args.dump_textures
-            )
-        
-        if args.dump_textures:
-            for texture in dme.dmat.textures:
-                print(texture)
-            return 0
-        
-        if not args.format:
-            logger.error("File format is required for conversion!")
-            return 1
-        if not args.output_file:
-            output_path = Path(args.input_file).with_suffix("." + args.format)
-        else:
-            output_path = Path(args.output_file)
-        tmp_output_path = output_path.with_suffix(".tmp")
-        
         if args.format == "obj":
             with open(tmp_output_path, "w") as output:
                 to_obj(dme, output)
         elif args.format == "stl":
             to_stl(dme, str(tmp_output_path))
-        elif args.format == "glb":
-            to_glb(dme, str(tmp_output_path), manager, Path(args.input_file).name, not args.no_skeleton)
-        elif args.format == "gltf":
-            to_gltf(dme, str(tmp_output_path), manager, Path(args.input_file).name, not args.no_skeleton)
+        elif asset_dir:
+            # Using extracted assets
+            if args.format == "glb":
+                gltk, blob, textures = dme_to_gltf_extracted(dme, asset_dir, Path(args.input_file).name,
+                                                             str(tmp_output_path.stem), not args.no_skeleton)
+                gltk.set_binary_blob(blob)
+                gltk.save_binary(str(tmp_output_path))
+                save_textures(str(tmp_output_path), textures)
+            elif args.format == "gltf":
+                gltk, blob, textures = dme_to_gltf_extracted(dme, asset_dir, Path(args.input_file).name,
+                                                             str(tmp_output_path.stem), not args.no_skeleton)
+                blobpath = tmp_output_path.with_suffix(".bin")
+                with open(blobpath, "wb") as blob_out:
+                    blob_out.write(blob)
+                gltk.buffers[0].uri = blobpath.name
+                gltk.save_json(str(tmp_output_path))
+                save_textures(str(tmp_output_path), textures)
+        else:
+            # Using pack files - original behavior
+            pool = multiprocessing.Pool(8)
+            manager = get_manager(pool)
+            if args.format == "glb":
+                to_glb(dme, str(tmp_output_path), manager, Path(args.input_file).name, not args.no_skeleton)
+            elif args.format == "gltf":
+                to_gltf(dme, str(tmp_output_path), manager, Path(args.input_file).name, not args.no_skeleton)
 
         os.replace(tmp_output_path, output_path)
     except FileNotFoundError:
         logger.error(f"Could not find {args.input_file}")
     except AssertionError as e:
         logger.error(f"{e}")
-    
-    pool.close()
-    pool.join()
+    finally:
+        if pool:
+            pool.close()
+            pool.join()
 
 
 if __name__ == "__main__":
