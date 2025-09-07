@@ -5,11 +5,12 @@ I included all of the requirements kind of pre-installed and standalone for ease
 Start at open pydmod\ps2ls_1_2_0_133\ps2ls.exe > select all .pack and extract the the raw files to a single directory, ie M:\H1Z1_assets (or wherever you like, will be several GB)
 the initial .pack files are in H1EMU\Resources\Assets 
 
+
 2) Then take and decompress .cnk1 using modified forgelight-chunk:
 
 grab and MOVE all the .cnk1 from the extracted .pack files folder and bring them into pydmod\forgelight-chunk\cnk1compressed folder, then run pydmod\forgelight-chunk\decompressallcnk1.bat which will extract to pydmod\forgelight-chunk\cnk1decompressed
-Don't store the original compressed .cnk1 in the H1Z1_assets folder (just leave them in pydmod\forgelight-chunk\cnk1compressed folder), 
-put the NEW uncompressed .cnk1 into the unpacked H1Z1_assets folder (note these will have the exact same filenames as the originals, just larger)
+
+Don't store the original compressed .cnk1 in the H1Z1_assets folder (just leave them in pydmod\forgelight-chunk\cnk1compressed folder), put the NEW uncompressed .cnk1 into the unpacked H1Z1_assets folder (note these will have the exact same filenames as the originals, just larger)
 
 
 3) Optional edit of dme_loader.py:
@@ -19,11 +20,15 @@ things like item spawns, zombies, trash, certain props, etc are all not needed f
 
 pydmod\conversion_logs will give an output .txt file of which .adr were kept or skipped, among some other stats, once zone_converter_kit.py is run
 
+
 4) zone_converter_kit.py:
 
 navigate to your pydmod directory in cmd, powershell or other
+
 cd M:\yourdirectorynaming\pydmod
+
 Activate the virtual environment:
+
 & ./venv/bin/Activate.ps1
 or
 venv\Scripts\activate
@@ -37,25 +42,36 @@ python zone_converter_kit.py "zonefile.zone" "outputpath.glb" --asset-dir "asset
 for options: -a is actors (.adr) enabled, -t is terrain (cnk1) enabled, -v verbose logging, -f format (glb or gltf)
 
 FOR EXAMPLE (in my case):
+
 in powershell:
+
 cd M:\H1_Tool_Projects\pydmod
+
 venv\Scripts\activate
 
 then use the following command for a bounding box x1 z1 x2 z2:
+
 python zone_converter_kit.py "Z1.zone" "M:\NavMesh_Project\TestOutput.glb" --asset-dir "M:\H1Z1_assets" -f glb -v -a -t -b 512 -512 1024 0
 
 or if you want the entire zone file:
+
 python zone_converter_kit.py "Z1.zone" "M:\NavMesh_Project\TestOutput.glb" --asset-dir "M:\H1Z1_assets" -f glb -v -a -t
 
 for more explanation (should not need) visit original pydmod https://github.com/ryanjsims/pydmod (not all original functions are in my version as they are not needed)
 
+
 5) Open .glb file in Blender
 
 edit your heart out, then export as .obj
+
 Default Settings, then make sure
+
 Foward Axis -Z
+
 Up Axis Y
+
 Triangulated Mesh is checked
+
 
 6) Move onto Recast and Detour to load the .obj and create .bin (not included in this repo)
 
